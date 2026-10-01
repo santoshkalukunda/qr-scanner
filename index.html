@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Universal QR Code Scanner</title>
+<meta name="description" content="Scan QR codes and barcodes from images or your camera, even offline.">
+<meta name="theme-color" content="#1e1b4b">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="QR Scanner">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
+  body {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    min-height: 100vh;
+    background: radial-gradient(circle at 20% 20%, #1e1b4b, #0f172a 60%);
+    color: #e2e8f0;
+    display: flex; justify-content: center; align-items: flex-start;
+    padding: 32px 14px;
+  }
+  .card {
+    width: 100%; max-width: 620px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    backdrop-filter: blur(12px);
+    border-radius: 20px; padding: 26px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.4);
+  }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  .sub { color: #94a3b8; font-size: 0.9rem; margin-bottom: 18px; line-height: 1.4; }
+
+  .tabs { display: flex; gap: 6px; background: rgba(0,0,0,0.25); padding: 5px; border-radius: 12px; margin-bottom: 16px; }
+  .tab { flex: 1; background: transparent; color: #94a3b8; }
+  .tab.active { background: #6366f1; color: #fff; }
+
+  .drop {
+    display: block; border: 2px dashed #6366f1; border-radius: 16px;
+    padding: 34px 16px; text-align: center; cursor: pointer; transition: all .2s ease;
+  }
+  .drop:hover, .drop.over { background: rgba(99,102,241,0.12); border-color: #a5b4fc; transform: scale(1.01); }
+  .drop .icon { font-size: 2.5rem; margin-bottom: 8px; }
+  .drop p { color: #cbd5e1; }
+  .drop small { color: #64748b; display: block; margin-top: 6px; }
+  input[type=file] { display: none; }
+
+  .cam-wrap {
+    position: relative; border-radius: 16px; overflow: hidden; background: #020617;
+    aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center;
+  }
+  .cam-wrap video { width: 100%; height: 100%; object-fit: cover; display: none; }
+  .cam-wrap.on video { display: block; }
+  .cam-wrap .ph { color: #64748b; font-size: 0.95rem; }
+  .cam-wrap.on .ph { display: none; }
+  .frame { position: absolute; inset: 18%; border: 3px solid rgba(165,180,252,0.85); border-radius: 14px; display: none; overflow: hidden; }
+  .cam-wrap.on .frame { display: block; }
+  .frame::after {
+    content: ''; position: absolute; left: 0; right: 0; height: 2px; background: #22c55e;
+    box-shadow: 0 0 12px #22c55e; animation: sweep 2s ease-in-out infinite;
+  }
+  @keyframes sweep { 0%,100% { top: 4%; } 50% { top: 94%; } }
+
+  .status { display: flex; align-items: center; gap: 10px; margin-top: 16px; color: #a5b4fc; font-size: 0.9rem; }
+  .spinner { width: 20px; height: 20px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #a5b4fc; border-radius: 50%; animation: spin .8s linear infinite; flex-shrink: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .preview { margin-top: 18px; text-align: center; }
+  canvas#cv { max-width: 100%; max-height: 420px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); }
+
+  .res-title { margin-top: 18px; font-weight: 600; color: #86efac; }
+  .res {
+    margin-top: 12px; padding: 16px; border-radius: 14px;
+    background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.35);
+    animation: pop .3s ease;
+  }
+  .res.err { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.4); }
+  .res-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .num { background: #22c55e; color: #052e16; font-weight: 700; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 0.8rem; }
+  .type { font-weight: 600; }
+  .fmt { margin-left: auto; font-size: 0.75rem; color: #94a3b8; border: 1px solid rgba(255,255,255,0.15); padding: 2px 8px; border-radius: 999px; }
+  .fields { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 0.92rem; }
+  .fields .k { color: #94a3b8; }
+  .fields .v { word-break: break-word; white-space: pre-wrap; font-family: ui-monospace, monospace; color: #f8fafc; }
+  details { margin-top: 10px; font-size: 0.85rem; color: #94a3b8; }
+  details pre { margin-top: 6px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px; white-space: pre-wrap; word-break: break-all; color: #cbd5e1; }
+  .tips { margin-top: 8px; color: #fca5a5; font-size: 0.88rem; line-height: 1.6; }
+
+  .btns { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .btns.center { justify-content: center; }
+  button {
+    background: #6366f1; color: #fff; border: none; padding: 9px 15px;
+    border-radius: 10px; cursor: pointer; font-size: 0.9rem; transition: background .2s, transform .1s;
+  }
+  button:hover { background: #818cf8; }
+  button:active { transform: scale(0.96); }
+  button.ghost { background: transparent; border: 1px solid rgba(255,255,255,0.2); }
+  button.ghost:hover { background: rgba(255,255,255,0.08); }
+  .engines { margin-top: 18px; font-size: 0.75rem; color: #64748b; text-align: center; }
+  @keyframes pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  /* ---- PWA UI ---- */
+  .pwa-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .pill { font-size: 0.75rem; padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.15); color: #94a3b8; }
+  .pill.online { color: #86efac; border-color: rgba(34,197,94,0.4); }
+  .pill.offline { color: #fca5a5; border-color: rgba(239,68,68,0.4); }
+  .ios-hint { font-size: 0.8rem; color: #94a3b8; }
+  #installBtn { margin-left: auto; padding: 6px 12px; font-size: 0.85rem; }
+  .toast {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 10;
+    background: #1e293b; border: 1px solid rgba(255,255,255,0.15); border-radius: 12px;
+    padding: 12px 16px; display: flex; gap: 12px; align-items: center;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5); animation: pop .3s ease;
+  }
+  @media (display-mode: standalone) {
+    body { padding-top: max(32px, env(safe-area-inset-top)); }
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>📷 Universal QR Scanner</h1>
+  <p class="sub">Reads QR codes from images or your camera: colored, inverted, tiny, mirrored, low-contrast, several codes in one image, and most barcodes too.</p>
+
+  <div class="pwa-bar">
+    <span class="pill" id="netPill">● Online</span>
+    <span class="pill online" id="offlinePill" hidden>✓ Works offline</span>
+    <span class="ios-hint" id="iosHint" hidden>📱 To install: tap Share → Add to Home Screen</span>
+    <button id="installBtn" hidden>⬇ Install app</button>
+  </div>
+  <div class="toast" id="updateToast" hidden>
+    <span>A new version is available.</span>
+    <button id="updateBtn">Update</button>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="img">🖼️ Image</button>
+    <button class="tab" data-tab="cam">🎥 Camera</button>
+  </div>
+
+  <div id="panel-img">
+    <label class="drop" id="drop">
+      <div class="icon">🖼️</div>
+      <p><strong>Click to choose an image</strong> or drop it here</p>
+      <small>Paste with Ctrl+V / ⌘+V · PNG, JPG, WebP, GIF, SVG, BMP</small>
+      <input type="file" id="file" accept="image/*">
+    </label>
+  </div>
+
+  <div id="panel-cam" hidden>
+    <div class="cam-wrap" id="camWrap">
+      <video id="video" playsinline muted></video>
+      <div class="frame"></div>
+      <span class="ph">Camera is off</span>
+    </div>
+    <div class="btns center">
+      <button id="camStart">▶ Start camera</button>
+      <button id="camFlip" class="ghost">🔄 Switch camera</button>
+      <button id="camStop" class="ghost">⏹ Stop</button>
+    </div>
+  </div>
+
+  <div class="status" id="status" hidden><div class="spinner"></div><span id="statusText"></span></div>
+  <div class="preview" id="preview" hidden><canvas id="cv"></canvas></div>
+  <div id="results"></div>
+  <div class="engines" id="engines">Loading scan engines…</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const tick = () => new Promise(r => setTimeout(r, 0));
+
+/* =========================================================
+   1. LOAD DECODING ENGINES (with CDN fallbacks)
+   ========================================================= */
+const libs = { native: false, jsqr: false, zxing: false };
+let bd = null;   // native BarcodeDetector instance (declared early: used by `ready` below)
+let ZX = null;   // ZXing reader setup
+
+function loadScript(srcs) {
+  return new Promise(res => {
+    (function next(i) {
+      if (i >= srcs.length) return res(false);
+      const s = document.createElement('script');
+      s.src = srcs[i];
+      s.onload = () => res(true);
+      s.onerror = () => { s.remove(); next(i + 1); };
+      document.head.appendChild(s);
+    })(0);
+  });
+}
+
+const ready = Promise.all([
+  loadScript([
+    'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js',
+    'https://unpkg.com/jsqr@1.4.0/dist/jsQR.js'
+  ]).then(ok => { libs.jsqr = ok && typeof window.jsQR === 'function'; }),
+  loadScript([
+    'https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js',
+    'https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js'
+  ]).then(ok => {
+    try { libs.zxing = ok && typeof window.ZXing !== 'undefined' && !!zx(); }
+    catch (e) { console.warn('ZXing init failed', e); libs.zxing = false; }
+  }),
+  getBD()
+]).then(() => {
+  const f = ok => ok ? '✓' : '✗';
+  $('engines').textContent = `Engines: Native ${f(libs.native)} · jsQR ${f(libs.jsqr)} · ZXing ${f(libs.zxing)}`;
+});
+
+/* ---- Native BarcodeDetector (Chrome / Edge / Android) ---- */
+async function getBD() {
+  if (bd !== null) return bd;
+  bd = false;
+  if ('BarcodeDetector' in window) {
+    try {
+      const formats = await BarcodeDetector.getSupportedFormats();
+      if (formats.length) { bd = new BarcodeDetector({ formats }); libs.native = true; }
+    } catch (e) { console.warn('BarcodeDetector unavailable', e); }
+  }
+  return bd;
+}
+async function decBD(source) {
+  const d = await getBD();
+  if (!d) return [];
+  try {
+    const res = await d.detect(source);
+    return res.map(b => ({
+      text: b.rawValue, format: fmtName(b.format),
+      pts: b.cornerPoints || [], corners: (b.cornerPoints || []).length === 4
+    }));
+  } catch { return []; }
+}
+
+/* ---- jsQR ---- */
+function decJsQR(rgba, w, h, inv = 'attemptBoth') {
+  if (!libs.jsqr) return null;
+  const c = jsQR(rgba, w, h, { inversionAttempts: inv });
+  if (!c) return null;
+  const L = c.location;
+  return {
+    text: c.data, format: 'QR Code', corners: true,
+    pts: [L.topLeftCorner, L.topRightCorner, L.bottomRightCorner, L.bottomLeftCorner]
+  };
+}
+
+/* ---- ZXing (QR, Data Matrix, Aztec, PDF417, EAN, UPC, Code128…) ---- */
+function zx() {
+  if (ZX) return ZX;
+  class GrayLum extends ZXing.LuminanceSource {
+    constructor(g, w, h) { super(w, h); this.g = g; }
+    getRow(y, row) {
+      const w = this.getWidth();
+      if (!row || row.length < w) row = new Uint8ClampedArray(w);
+      row.set(this.g.subarray(y * w, y * w + w));
+      return row;
+    }
+    getMatrix() { return this.g; }
+    isCropSupported() { return false; }
+    isRotateSupported() { return false; }
+  }
+  const hints = new Map();
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+  ZX = { GrayLum, hints, reader: new ZXing.MultiFormatReader() };
+  return ZX;
+}
+function decZX(g, w, h) {
+  if (!libs.zxing) return null;
+  const z = zx();
+  try {
+    const bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new z.GrayLum(g, w, h)));
+    const r = z.reader.decode(bmp, z.hints);
+    return {
+      text: r.getText(), format: fmtName(ZXing.BarcodeFormat[r.getBarcodeFormat()]),
+      pts: (r.getResultPoints() || []).map(p => ({ x: p.getX(), y: p.getY() })), corners: false
+    };
+  } catch { return null; }
+  finally { try { z.reader.reset(); } catch {} }
+}
+
+function fmtName(f) {
+  if (f === undefined || f === null) return 'Code';
+  const n = String(f).toLowerCase();
+  if (n === 'qr_code') return 'QR Code';
+  return n.replace(/_/g, ' ').toUpperCase();
+}
+
+/* =========================================================
+   2. IMAGE PRE-PROCESSING
+   ========================================================= */
+const master = document.createElement('canvas');               // working copy (gets masked)
+const mctx = master.getContext('2d', { willReadFrequently: true });
+const work = document.createElement('canvas');                 // per-attempt canvas
+const wctx = work.getContext('2d', { willReadFrequently: true });
+
+// White background (fixes transparent PNGs) + quiet-zone padding
+function setupMaster(img) {
+  const iw = img.naturalWidth || img.width || 512;
+  const ih = img.naturalHeight || img.height || 512;
+  const s = Math.min(1, 2400 / Math.max(iw, ih));
+  const w = Math.round(iw * s), h = Math.round(ih * s);
+  const pad = Math.round(Math.max(w, h) * 0.08) + 10;
+  master.width = w + pad * 2;
+  master.height = h + pad * 2;
+  mctx.fillStyle = '#fff';
+  mctx.fillRect(0, 0, master.width, master.height);
+  mctx.imageSmoothingEnabled = true;
+  mctx.drawImage(img, pad, pad, w, h);
+}
+
+// Copy a region of master into the work canvas at a target size
+function grab(r, target, flip) {
+  const t = target || Math.max(r.w, r.h);
+  const s = t / Math.max(r.w, r.h);
+  const w = Math.max(1, Math.round(r.w * s)), h = Math.max(1, Math.round(r.h * s));
+  const pad = Math.round(Math.max(w, h) * 0.06) + 4;
+  work.width = w + pad * 2;
+  work.height = h + pad * 2;
+  wctx.setTransform(1, 0, 0, 1, 0, 0);
+  wctx.fillStyle = '#fff';
+  wctx.fillRect(0, 0, work.width, work.height);
+  wctx.imageSmoothingEnabled = s < 1;           // crisp edges when upscaling
+  if (flip) { wctx.translate(work.width, 0); wctx.scale(-1, 1); }
+  wctx.drawImage(master, r.x, r.y, r.w, r.h, pad, pad, w, h);
+  wctx.setTransform(1, 0, 0, 1, 0, 0);
+  const d = wctx.getImageData(0, 0, work.width, work.height);
+  const W = work.width;
+  const map = p => {
+    const x = flip ? W - p.x : p.x;
+    return { x: r.x + (x - pad) / s, y: r.y + (p.y - pad) / s };
+  };
+  return { d, map };
+}
+
+function toGray(d) {
+  const p = d.data, g = new Uint8ClampedArray(d.width * d.height);
+  for (let i = 0, j = 0; i < g.length; i++, j += 4) g[i] = (p[j] * 77 + p[j + 1] * 150 + p[j + 2] * 29) >> 8;
+  return g;
+}
+function toChannel(d, c) {
+  const p = d.data, g = new Uint8ClampedArray(d.width * d.height);
+  for (let i = 0, j = c; i < g.length; i++, j += 4) g[i] = p[j];
+  return g;
+}
+function hist(g) { const h = new Uint32Array(256); for (let i = 0; i < g.length; i++) h[g[i]]++; return h; }
+
+// Contrast stretch (for faded / low-contrast codes)
+function stretch(g) {
+  const h = hist(g), n = g.length;
+  let lo = 0, hi = 255, a = 0;
+  while (lo < 255 && (a += h[lo]) < n * 0.01) lo++;
+  a = 0;
+  while (hi > 0 && (a += h[hi]) < n * 0.01) hi--;
+  if (hi - lo < 10) return g;
+  const o = new Uint8ClampedArray(n), k = 255 / (hi - lo);
+  for (let i = 0; i < n; i++) o[i] = (g[i] - lo) * k;
+  return o;
+}
+// Otsu threshold (for colored / noisy backgrounds)
+function otsu(g) {
+  const h = hist(g), n = g.length;
+  let sum = 0; for (let i = 0; i < 256; i++) sum += i * h[i];
+  let sB = 0, wB = 0, best = 0, t = 127;
+  for (let i = 0; i < 256; i++) {
+    wB += h[i]; if (!wB) continue;
+    const wF = n - wB; if (!wF) break;
+    sB += i * h[i];
+    const v = wB * wF * (sB / wB - (sum - sB) / wF) ** 2;
+    if (v > best) { best = v; t = i; }
+  }
+  const o = new Uint8ClampedArray(n);
+  for (let i = 0; i < n; i++) o[i] = g[i] > t ? 255 : 0;
+  return o;
+}
+function invert(g) { const o = new Uint8ClampedArray(g.length); for (let i = 0; i < g.length; i++) o[i] = 255 - g[i]; return o; }
+function toRGBA(g) {
+  const o = new Uint8ClampedArray(g.length * 4);
+  for (let i = 0, j = 0; i < g.length; i++, j += 4) { o[j] = o[j + 1] = o[j + 2] = g[i]; o[j + 3] = 255; }
+  return o;
+}
+function variant(d, v) {
+  switch (v) {
+    case 'contrast': return stretch(toGray(d));
+    case 'otsu':     return otsu(toGray(d));
+    case 'red':      return stretch(toChannel(d, 0));
+    case 'green':    return stretch(toChannel(d, 1));
+    case 'blue':     return stretch(toChannel(d, 2));
+    default:         return toGray(d);
+  }
+}
+
+/* =========================================================
+   3. SCAN STRATEGY: many sizes × filters × engines × tiles
+   ========================================================= */
+function strategies(full) {
+  const W = master.width, H = master.height, whole = { x: 0, y: 0, w: W, h: H }, S = [];
+  const add = (r, t, v, e, flip = false) => S.push({ r, t, v, e, flip });
+
+  (full ? [0, 800, 500, 1200, 300, 1800] : [0, 800, 1200]).forEach(t => add(whole, t, 'raw', 'jsqr'));
+  (full ? [0, 800, 1200] : [800]).forEach(t => add(whole, t, 'gray', 'zx'));
+  if (!full) return S;
+
+  ['contrast', 'otsu', 'red', 'green', 'blue'].forEach(v =>
+    [800, 1200].forEach(t => { add(whole, t, v, 'jsqr'); add(whole, t, v, 'zx'); }));
+
+  // Mirrored codes (photographed through glass / selfie camera)
+  add(whole, 800, 'raw', 'jsqr', true);
+  add(whole, 800, 'gray', 'zx', true);
+
+  // Small code inside a big photo → scan overlapping tiles
+  if (Math.max(W, H) > 900) {
+    for (const n of [2, 3]) {
+      const tw = Math.min(W, (W / n) * 1.5), th = Math.min(H, (H / n) * 1.5);
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+        const r = { x: (W - tw) * i / (n - 1), y: (H - th) * j / (n - 1), w: tw, h: th };
+        add(r, 800, 'raw', 'jsqr');
+        add(r, 800, 'contrast', 'zx');
+      }
+    }
+  }
+  return S;
+}
+
+function attempt(st) {
+  if (st.e === 'jsqr' && !libs.jsqr) return null;
+  if (st.e === 'zx' && !libs.zxing) return null;
+  const { d, map } = grab(st.r, st.t, st.flip);
+  let res;
+  if (st.e === 'jsqr') {
+    res = decJsQR(st.v === 'raw' ? d.data : toRGBA(variant(d, st.v)), d.width, d.height);
+  } else {
+    const g = variant(d, st.v);
+    res = decZX(g, d.width, d.height) || decZX(invert(g), d.width, d.height);
+  }
+  if (res) res.pts = res.pts.map(map);
+  return res;
+}
+
+function bbox(pts) {
+  if (!pts || !pts.length) return null;
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const x = Math.min(...xs), y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+
+// White-out a found code so the next pass can find other codes
+function mask(r) {
+  const b = bbox(r.pts); if (!b) return;
+  const L = Math.max(b.w, b.h);
+  const m = r.corners ? L * 0.1 + 6 : L * 0.4 + 16;
+  mctx.fillStyle = '#fff';
+  mctx.fillRect(b.x - m, b.y - m, b.w + 2 * m, b.h + 2 * m);
+}
+
+async function findOne(full, found) {
+  const list = strategies(full);
+  for (let i = 0; i < list.length; i++) {
+    if (i % 2 === 0) { setStatus(`Scanning… pass ${i + 1} of ${list.length}`); await tick(); }
+    const r = attempt(list[i]);
+    if (!r) continue;
+    if (found.some(f => f.text === r.text)) { mask(r); continue; }
+    return r;
+  }
+  return null;
+}
+
+async function scanImage(img) {
+  clearResults();
+  $('preview').hidden = true;
+  setStatus('Loading scan engines…');
+  await ready;
+  if (!libs.jsqr && !libs.zxing && !libs.native) {
+    hideStatus();
+    return showError('No scan engine could be loaded. Check your internet connection and reload the page.');
+  }
+
+  setupMaster(img);
+  const clean = cloneCanvas(master);
+  const found = [];
+
+  setStatus('Running native detector…'); await tick();
+  for (const r of await decBD(master)) {
+    if (!found.some(f => f.text === r.text)) { found.push(r); mask(r); }
+  }
+
+  // Keep searching until no more codes (full search only for the first one)
+  while (found.length < 12) {
+    const r = await findOne(found.length === 0, found);
+    if (!r) break;
+    found.push(r);
+    mask(r);
+  }
+
+  hideStatus();
+  showPreview(clean, found);
+  if (found.length) renderResults(found);
+  else showError('No QR code or barcode found.', true);
+}
+
+/* =========================================================
+   4. CONTENT PARSING (Wi-Fi, contact, payment, etc.)
+   ========================================================= */
+const CUR = { '524': 'NPR', '356': 'INR', '840': 'USD', '978': 'EUR', '826': 'GBP', '156': 'CNY', '392': 'JPY',
+  '050': 'BDT', '144': 'LKR', '586': 'PKR', '702': 'SGD', '764': 'THB', '360': 'IDR', '458': 'MYR', '704': 'VND', '608': 'PHP' };
+
+function kv(body) {           // parses KEY:value;KEY:value;; with \ escapes
+  const o = {}; let buf = '', key = null, esc = false;
+  for (const ch of body) {
+    if (esc) { buf += ch; esc = false; continue; }
+    if (ch === '\\') { esc = true; continue; }
+    if (ch === ':' && key === null) { key = buf.toUpperCase(); buf = ''; continue; }
+    if (ch === ';') { if (key !== null) (o[key] ??= []).push(buf); key = null; buf = ''; continue; }
+    buf += ch;
+  }
+  if (key !== null) (o[key] ??= []).push(buf);
+  return o;
+}
+function lineProps(s) {       // vCard / iCal line properties
+  const out = [];
+  for (const l of s.replace(/\r?\n[ \t]/g, '').split(/\r?\n/)) {
+    const i = l.indexOf(':'); if (i < 0) continue;
+    out.push([l.slice(0, i).split(';')[0].toUpperCase().replace(/^ITEM\d+\./, ''), l.slice(i + 1)]);
+  }
+  return out;
+}
+const unesc = v => v.replace(/\\n/gi, '\n').replace(/\\([,;\\])/g, '$1');
+
+function vcard(s) {
+  const c = { name: '', tel: [], email: [], org: '', title: '', adr: '', url: '' };
+  for (const [k, v] of lineProps(s)) {
+    if (k === 'FN') c.name = unesc(v);
+    else if (k === 'N' && !c.name) { const p = v.split(';'); c.name = unesc([p[3], p[1], p[2], p[0], p[4]].filter(Boolean).join(' ')); }
+    else if (k === 'TEL') c.tel.push(v);
+    else if (k === 'EMAIL') c.email.push(v);
+    else if (k === 'ORG') c.org = unesc(v.replace(/;/g, ' ')).trim();
+    else if (k === 'TITLE') c.title = unesc(v);
+    else if (k === 'ADR') c.adr = unesc(v.split(';').filter(Boolean).join(', '));
+    else if (k === 'URL') c.url = v;
+  }
+  return c;
+}
+function icsDate(v) {
+  const m = (v || '').match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2}))?/);
+  if (!m) return v || '';
+  return `${m[1]}-${m[2]}-${m[3]}${m[4] ? ` ${m[4]}:${m[5]}` : ''}${/Z$/.test(v) ? ' UTC' : ''}`;
+}
+function tlv(s) {             // EMVCo payment QR (Fonepay, NepalPay, UPI-EMV, PromptPay…)
+  const o = {}; let i = 0;
+  while (i + 4 <= s.length) {
+    const tag = s.substr(i, 2), len = parseInt(s.substr(i + 2, 2), 10);
+    if (isNaN(len)) break;
+    o[tag] = s.substr(i + 4, len); i += 4 + len;
+  }
+  return o;
+}
+
+function parse(raw) {
+  const s = raw.trim(), up = s.toUpperCase();
+  const R = (type, icon, fields, actions = []) => ({ type, icon, fields: fields.filter(f => f[1]), actions });
+
+  if (/^https?:\/\//i.test(s)) return R('Website', '🔗', [['URL', s]], [['🔗 Open link', () => openSafe(s)]]);
+  if (/^www\.\S+$/i.test(s)) return R('Website', '🔗', [['URL', s]], [['🔗 Open link', () => openSafe('https://' + s)]]);
+
+  if (up.startsWith('WIFI:')) {
+    const o = kv(s.slice(5)), g = k => (o[k] || [''])[0];
+    const pass = g('P');
+    return R('Wi-Fi network', '📶',
+      [['Network', g('S')], ['Password', pass], ['Security', g('T') || 'None'], ['Hidden', g('H') === 'true' ? 'Yes' : '']],
+      pass ? [['🔑 Copy password', b => copy(pass, b)]] : []);
+  }
+
+  if (up.startsWith('BEGIN:VCARD')) {
+    const c = vcard(s);
+    return R('Contact', '👤',
+      [['Name', c.name], ['Phone', c.tel.join(', ')], ['Email', c.email.join(', ')], ['Organization', c.org],
+       ['Title', c.title], ['Address', c.adr], ['Website', c.url]],
+      [['💾 Save contact', () => download(s, 'contact.vcf', 'text/vcard')],
+       ...(c.tel[0] ? [['📞 Call', () => openSafe('tel:' + c.tel[0])]] : [])]);
+  }
+
+  if (up.startsWith('MECARD:')) {
+    const o = kv(s.slice(7)), g = k => o[k] || [];
+    const n = g('N')[0] || '';
+    const name = n.includes(',') ? n.split(',').reverse().join(' ').trim() : n;
+    const vcf = ['BEGIN:VCARD', 'VERSION:3.0', `FN:${name}`, ...g('TEL').map(t => `TEL:${t}`),
+      ...g('EMAIL').map(e => `EMAIL:${e}`), g('ORG')[0] && `ORG:${g('ORG')[0]}`, g('URL')[0] && `URL:${g('URL')[0]}`,
+      g('ADR')[0] && `ADR:;;${g('ADR')[0]}`, 'END:VCARD'].filter(Boolean).join('\r\n');
+    return R('Contact', '👤',
+      [['Name', name], ['Phone', g('TEL').join(', ')], ['Email', g('EMAIL').join(', ')], ['Organization', g('ORG')[0]],
+       ['Address', g('ADR')[0]], ['Website', g('URL')[0]], ['Note', g('NOTE')[0]]],
+      [['💾 Save contact', () => download(vcf, 'contact.vcf', 'text/vcard')]]);
+  }
+
+  if (up.startsWith('MATMSG:')) {
+    const o = kv(s.slice(7)), g = k => (o[k] || [''])[0];
+    const link = `mailto:${g('TO')}?subject=${encodeURIComponent(g('SUB'))}&body=${encodeURIComponent(g('BODY'))}`;
+    return R('Email', '✉️', [['To', g('TO')], ['Subject', g('SUB')], ['Message', g('BODY')]], [['✉️ Write email', () => openSafe(link)]]);
+  }
+  if (/^mailto:/i.test(s)) {
+    try {
+      const u = new URL(s);
+      return R('Email', '✉️', [['To', decodeURIComponent(u.pathname)], ['Subject', u.searchParams.get('subject')],
+        ['Message', u.searchParams.get('body')]], [['✉️ Write email', () => openSafe(s)]]);
+    } catch {}
+  }
+  if (/^tel:/i.test(s)) return R('Phone number', '📞', [['Number', s.slice(4)]], [['📞 Call', () => openSafe(s)]]);
+  if (/^(smsto|sms):/i.test(s)) {
+    const rest = s.replace(/^(smsto|sms):/i, '');
+    const [num, ...msg] = rest.split(':');
+    const body = msg.join(':');
+    return R('SMS', '💬', [['To', num], ['Message', body]],
+      [['💬 Send SMS', () => openSafe(`sms:${num}${body ? '?body=' + encodeURIComponent(body) : ''}`)]]);
+  }
+  if (/^geo:/i.test(s)) {
+    const m = s.match(/^geo:\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)/i);
+    if (m) return R('Location', '📍', [['Latitude', m[1]], ['Longitude', m[2]]],
+      [['🗺️ Open map', () => openSafe(`https://www.google.com/maps?q=${m[1]},${m[2]}`)]]);
+  }
+  if (up.includes('BEGIN:VEVENT')) {
+    const p = Object.fromEntries(lineProps(s).reverse());
+    const ics = up.includes('BEGIN:VCALENDAR') ? s : `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${s}\r\nEND:VCALENDAR`;
+    return R('Calendar event', '📅',
+      [['Title', unesc(p.SUMMARY || '')], ['Starts', icsDate(p.DTSTART)], ['Ends', icsDate(p.DTEND)],
+       ['Location', unesc(p.LOCATION || '')], ['Details', unesc(p.DESCRIPTION || '')]],
+      [['📅 Add to calendar', () => download(ics, 'event.ics', 'text/calendar')]]);
+  }
+  if (/^otpauth:\/\//i.test(s)) {
+    try {
+      const u = new URL(s);
+      return R('2FA authenticator key', '🔐',
+        [['Account', decodeURIComponent(u.pathname.replace(/^\//, ''))], ['Issuer', u.searchParams.get('issuer')],
+         ['Type', u.host.toUpperCase()], ['Note', 'Scan this with an authenticator app. Keep it private.']]);
+    } catch {}
+  }
+  if (/^upi:\/\//i.test(s)) {
+    try {
+      const q = new URL(s).searchParams;
+      return R('UPI payment', '💳', [['Payee', q.get('pn')], ['UPI ID', q.get('pa')],
+        ['Amount', q.get('am') && `${q.get('am')} ${q.get('cu') || 'INR'}`], ['Note', q.get('tn')]]);
+    } catch {}
+  }
+  if (/^(bitcoin|ethereum|litecoin|dogecoin|monero):/i.test(s)) {
+    const [scheme, rest] = [s.split(':')[0], s.slice(s.indexOf(':') + 1)];
+    const [addr, qs] = rest.split('?');
+    const q = new URLSearchParams(qs || '');
+    return R('Crypto address', '🪙', [['Coin', scheme[0].toUpperCase() + scheme.slice(1).toLowerCase()],
+      ['Address', addr], ['Amount', q.get('amount')], ['Label', q.get('label')]]);
+  }
+  if (/^000201/.test(s)) {
+    const t = tlv(s), cur = CUR[t['53']] || t['53'];
+    return R('Payment QR (EMVCo)', '💳',
+      [['Merchant', t['59']], ['City', t['60']], ['Country', t['58']],
+       ['Amount', t['54'] && `${t['54']} ${cur || ''}`], ['Currency', cur],
+       ['Type', t['01'] === '12' ? 'Dynamic (one-time)' : t['01'] === '11' ? 'Static (reusable)' : '']]);
+  }
+  if (/^[\[{]/.test(s)) {
+    try {
+      const j = JSON.parse(s);
+      return R('JSON data', '🧾', [['Content', JSON.stringify(j, null, 2)]]);
+    } catch {}
+  }
+  if (/^\d{8,14}$/.test(s)) return R('Product / number', '🏷️', [['Number', s]],
+    [['🔎 Search online', () => openSafe('https://www.google.com/search?q=' + s)]]);
+
+  return R('Text', '📝', [['Text', s || '(empty)']]);
+}
+
+/* =========================================================
+   5. UI HELPERS
+   ========================================================= */
+function el(tag, attrs = {}, kids = []) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  (Array.isArray(kids) ? kids : [kids]).forEach(c => e.append(c));
+  return e;
+}
+function cloneCanvas(c) {
+  const n = document.createElement('canvas');
+  n.width = c.width; n.height = c.height;
+  n.getContext('2d').drawImage(c, 0, 0);
+  return n;
+}
+function setStatus(t) { $('status').hidden = false; $('statusText').textContent = t; }
+function hideStatus() { $('status').hidden = true; }
+function clearResults() { $('results').innerHTML = ''; }
+
+function openSafe(u) {
+  if (!/^(https?:|mailto:|tel:|sms:)/i.test(u)) return;
+  const a = document.createElement('a');
+  a.href = u;
+  if (/^https?:/i.test(u)) { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+  a.click();
+}
+async function copy(text, btn) {
+  const old = btn.textContent;
+  try { await navigator.clipboard.writeText(text); btn.textContent = '✔ Copied!'; }
+  catch {
+    const ta = el('textarea'); ta.value = text; document.body.append(ta); ta.select();
+    btn.textContent = document.execCommand('copy') ? '✔ Copied!' : '✖ Copy failed';
+    ta.remove();
+  }
+  setTimeout(() => btn.textContent = old, 1500);
+}
+function download(content, name, type) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const a = el('a', { href: url, download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+const cv = $('cv'), ctx = cv.getContext('2d');
+function showPreview(src, found) {
+  cv.width = src.width; cv.height = src.height;
+  ctx.drawImage(src, 0, 0);
+  const lw = Math.max(3, cv.width / 200);
+  found.forEach((f, i) => {
+    const b = bbox(f.pts); if (!b) return;
+    ctx.lineWidth = lw; ctx.strokeStyle = '#22c55e';
+    ctx.beginPath();
+    if (f.corners) {
+      ctx.moveTo(f.pts[0].x, f.pts[0].y);
+      f.pts.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.closePath();
+    } else {
+      const m = Math.max(b.w, b.h) * 0.25 + 8;
+      ctx.rect(b.x - m, b.y - m, b.w + 2 * m, b.h + 2 * m);
+    }
+    ctx.stroke();
+    if (found.length > 1) {
+      const r = lw * 4;
+      ctx.fillStyle = '#22c55e';
+      ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#052e16'; ctx.font = `bold ${r * 1.2}px sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(i + 1), b.x, b.y);
+    }
+  });
+  $('preview').hidden = false;
+}
+
+function againButton() {
+  const b = el('button', { class: 'ghost' }, '↺ Scan another');
+  b.onclick = () => { $('preview').hidden = true; clearResults(); currentTab === 'cam' ? startCam() : $('file').click(); };
+  return b;
+}
+
+function renderResults(found) {
+  const box = $('results');
+  box.innerHTML = '';
+  box.append(el('div', { class: 'res-title' }, `✅ Found ${found.length} code${found.length > 1 ? 's' : ''}`));
+  found.forEach((f, i) => {
+    const p = parse(f.text);
+    const card = el('div', { class: 'res' });
+    card.append(el('div', { class: 'res-head' }, [
+      el('span', { class: 'num' }, String(i + 1)),
+      el('span', { class: 'type' }, `${p.icon} ${p.type}`),
+      el('span', { class: 'fmt' }, f.format)
+    ]));
+    const grid = el('div', { class: 'fields' });
+    p.fields.forEach(([k, v]) => grid.append(el('div', { class: 'k' }, k), el('div', { class: 'v' }, v)));
+    card.append(grid);
+    if (p.type !== 'Text') {
+      const det = el('details');
+      det.append(el('summary', {}, 'Raw data'), el('pre', {}, f.text));
+      card.append(det);
+    }
+    const btns = el('div', { class: 'btns' });
+    const cp = el('button', {}, '📋 Copy');
+    cp.onclick = () => copy(f.text, cp);
+    btns.append(cp);
+    p.actions.forEach(([label, fn]) => {
+      const b = el('button', { class: 'ghost' }, label);
+      b.onclick = () => fn(b);
+      btns.append(b);
+    });
+    card.append(btns);
+    box.append(card);
+  });
+  box.append(el('div', { class: 'btns' }, againButton()));
+}
+
+function showError(msg, tips = false) {
+  const card = el('div', { class: 'res err' }, [el('div', { class: 'type' }, '⚠️ ' + msg)]);
+  if (tips) card.append(el('div', { class: 'tips' },
+    'Tips: crop closer to the code · use a sharper / better-lit photo · avoid glare and heavy angles · make sure the whole code is visible with some margin around it.'));
+  card.append(el('div', { class: 'btns' }, againButton()));
+  $('results').innerHTML = '';
+  $('results').append(card);
+}
+
+/* =========================================================
+   6. IMAGE INPUT
+   ========================================================= */
+const fileIn = $('file'), drop = $('drop');
+
+function handleFile(f) {
+  if (!f) return;
+  if (!f.type.startsWith('image/') && !/\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i.test(f.name || '')) {
+    return showError('Please choose an image file.');
+  }
+  if (currentTab !== 'img') switchTab('img');
+  const url = URL.createObjectURL(f);
+  const img = new Image();
+  img.onload = () => {
+    scanImage(img)
+      .catch(e => { hideStatus(); showError('Scan error: ' + e.message); })
+      .finally(() => URL.revokeObjectURL(url));
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    showError('Could not read this image. HEIC/TIFF are not supported by browsers. Convert to JPG or PNG first.');
+  };
+  img.src = url;
+}
+
+fileIn.addEventListener('change', e => { handleFile(e.target.files[0]); fileIn.value = ''; });
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => handleFile(e.dataTransfer.files[0]));
+document.addEventListener('paste', e => {
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+  if (item) handleFile(item.getAsFile());
+});
+
+/* =========================================================
+   7. CAMERA (live scanning)
+   ========================================================= */
+const video = $('video');
+const camCv = document.createElement('canvas');
+const camCtx = camCv.getContext('2d', { willReadFrequently: true });
+let stream = null, raf = 0, facing = 'environment', busy = false, frame = 0;
+
+async function startCam() {
+  stopCam();
+  clearResults();
+  $('preview').hidden = true;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return showError('Camera is not available. It needs a modern browser and HTTPS or localhost.');
+  }
+  await ready;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false
+    });
+  } catch (e) {
+    return showError('Could not access the camera: ' + e.message);
+  }
+  video.srcObject = stream;
+  await video.play();
+  $('camWrap').classList.add('on');
+  loop();
+}
+
+function stopCam() {
+  cancelAnimationFrame(raf); raf = 0;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null;
+  video.srcObject = null;
+  $('camWrap').classList.remove('on');
+}
+
+async function loop() {
+  if (!stream) return;
+  raf = requestAnimationFrame(loop);
+  if (busy || video.readyState < 2 || !video.videoWidth) return;
+  busy = true;
+  try {
+    const w = video.videoWidth, h = video.videoHeight, s = Math.min(1, 800 / Math.max(w, h));
+    camCv.width = Math.round(w * s); camCv.height = Math.round(h * s);
+    camCtx.drawImage(video, 0, 0, camCv.width, camCv.height);
+
+    let found = await decBD(camCv);
+    if (!found.length && libs.jsqr) {
+      const d = camCtx.getImageData(0, 0, camCv.width, camCv.height);
+      const r = decJsQR(d.data, d.width, d.height, (frame & 1) ? 'onlyInvert' : 'dontInvert');
+      if (r) found = [r];
+    }
+    if (!found.length && libs.zxing && (++frame % 4 === 0)) {
+      const d = camCtx.getImageData(0, 0, camCv.width, camCv.height);
+      const r = decZX(toGray(d), d.width, d.height);
+      if (r) found = [r];
+    }
+    frame++;
+
+    if (found.length && stream) {
+      const snap = cloneCanvas(camCv);
+      stopCam();
+      if (navigator.vibrate) navigator.vibrate(80);
+      showPreview(snap, found);
+      renderResults(found);
+    }
+  } finally { busy = false; }
+}
+
+$('camStart').onclick = startCam;
+$('camStop').onclick = stopCam;
+$('camFlip').onclick = () => { facing = facing === 'environment' ? 'user' : 'environment'; startCam(); };
+
+/* =========================================================
+   8. TABS
+   ========================================================= */
+let currentTab = 'img';
+function switchTab(t) {
+  currentTab = t;
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
+  $('panel-img').hidden = t !== 'img';
+  $('panel-cam').hidden = t !== 'cam';
+  clearResults(); hideStatus(); $('preview').hidden = true;
+  if (t === 'img') stopCam();
+}
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+
+/* =========================================================
+   9. PWA: install prompt, offline status, service worker, updates
+   ========================================================= */
+let deferredPrompt = null;
+
+function updateNet() {
+  const p = $('netPill'), on = navigator.onLine;
+  p.textContent = on ? '● Online' : '● Offline';
+  p.className = 'pill ' + (on ? 'online' : 'offline');
+}
+addEventListener('online', updateNet);
+addEventListener('offline', updateNet);
+updateNet();
+
+// Chrome / Edge / Android install prompt
+addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  $('installBtn').hidden = false;
+});
+$('installBtn').onclick = async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt = null;
+  $('installBtn').hidden = true;
+};
+addEventListener('appinstalled', () => { $('installBtn').hidden = true; deferredPrompt = null; });
+
+// iOS has no install prompt: show a hint instead
+const isStandalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+if (isIOS && !isStandalone) $('iosHint').hidden = false;
+
+// Service worker registration + update flow
+if ('serviceWorker' in navigator) {
+  addEventListener('load', async () => {
+    try {
+      const reg = await navigator.serviceWorker.register('./sw.js');
+
+      const showUpdate = worker => {
+        $('updateToast').hidden = false;
+        $('updateBtn').onclick = () => worker.postMessage('SKIP_WAITING');
+      };
+      if (reg.waiting && navigator.serviceWorker.controller) showUpdate(reg.waiting);
+      reg.addEventListener('updatefound', () => {
+        const w = reg.installing;
+        w.addEventListener('statechange', () => {
+          if (w.state === 'installed' && navigator.serviceWorker.controller) showUpdate(w);
+        });
+      });
+
+      navigator.serviceWorker.ready.then(() => { $('offlinePill').hidden = false; });
+
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (refreshing) return;
+        refreshing = true;
+        location.reload();
+      });
+    } catch (e) {
+      console.warn('Service worker registration failed:', e);
+    }
+  });
+}
+</script>
+</body>
+</html>
