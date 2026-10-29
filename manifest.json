@@ -1,6 +1,6 @@
 {
   "name": "Universal QR Scanner",
-  "short_name": "QR Scanner",
+  "short_name": "Universal QR Scanner",
   "description": "Scan QR codes and barcodes from images or your camera, even offline.",
   "id": "./",
   "start_url": "./",
