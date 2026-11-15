@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Universal QR Code Scanner</title>
 <meta name="description" content="Scan QR codes and barcodes from images or your camera, even offline.">
 <meta name="theme-color" content="#1e1b4b">
@@ -151,6 +151,37 @@
   @media (display-mode: standalone) {
     body { padding-top: max(32px, env(safe-area-inset-top)); }
   }
+
+  /* ---- Mobile: responsive layout + bottom tab bar ---- */
+  .tab:not(.active):hover { background: rgba(255,255,255,0.06); }
+  @media (max-width: 640px) {
+    body { padding: max(16px, env(safe-area-inset-top)) 12px calc(96px + env(safe-area-inset-bottom)); }
+    /* flatten the card (its backdrop-filter would otherwise trap the fixed tab bar) */
+    .card { background: transparent; border: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; padding: 0; border-radius: 0; }
+    h1 { font-size: 1.35rem; }
+    .sub { font-size: 0.85rem; margin-bottom: 12px; }
+    .main-tabs {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; margin: 0;
+      border-radius: 18px 18px 0 0; gap: 4px;
+      padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+      background: rgba(15,23,42,0.94); border-top: 1px solid rgba(255,255,255,0.1);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 -8px 24px rgba(0,0,0,0.35);
+    }
+    .main-tabs .tab {
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      padding: 7px 4px; font-size: 0.75rem; font-weight: 500; border-radius: 12px;
+    }
+    .main-tabs .tab .ico { font-size: 1.35rem; line-height: 1; }
+    .toast { bottom: calc(84px + env(safe-area-inset-bottom)); width: calc(100% - 24px); justify-content: space-between; }
+    .drop { padding: 28px 12px; }
+    .btns button { flex: 1 1 auto; }
+    canvas#cv { max-height: 320px; }
+    .gen-out { padding: 12px; }
+    .fields { grid-template-columns: 1fr; gap: 2px; }
+    .fields .k { margin-top: 6px; font-size: 0.8rem; }
+    #installBtn { margin-left: 0; }
+  }
 </style>
 </head>
 <body>
@@ -169,11 +200,11 @@
     <button id="updateBtn">Update</button>
   </div>
 
-  <div class="tabs">
-    <button class="tab active" data-tab="img">🖼️ Image</button>
-    <button class="tab" data-tab="cam">🎥 Camera</button>
-    <button class="tab" data-tab="gen">✨ Generate</button>
-  </div>
+  <nav class="tabs main-tabs">
+    <button class="tab active" data-tab="img"><span class="ico">🖼️</span> <span>Image</span></button>
+    <button class="tab" data-tab="cam"><span class="ico">🎥</span> <span>Camera</span></button>
+    <button class="tab" data-tab="gen"><span class="ico">✨</span> <span>Generate</span></button>
+  </nav>
 
   <!-- ===== GENERATOR ===== -->
   <div id="panel-gen" class="gen" hidden>

@@ -1,5 +1,5 @@
 // Bump VERSION whenever you change any app file, so users get the update
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = `qr-scanner-${VERSION}`;
 
 const APP_SHELL = [
